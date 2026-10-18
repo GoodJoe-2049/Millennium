@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
-import android.content.ComponentName
 import android.content.Intent
 import android.provider.OpenableColumns
 import com.millennium.app.R
@@ -100,20 +99,11 @@ internal object SteamMaFileDocuments {
                 val uri = requireNotNull(intent?.data)
                 require(uri.scheme == "content")
                 request.monicaRequestId?.let { expected ->
-<<<<<<< HEAD
                     require(MonicaMaFileContract.validResult(
                         intent.getIntExtra(MonicaMaFileContract.EXTRA_VERSION, -1),
                         intent.getStringExtra(MonicaMaFileContract.EXTRA_REQUEST_ID), expected, uri.toString()
                     ))
                     require(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
-=======
-                    val response = requireNotNull(intent)
-                    require(MonicaMaFileContract.validResult(
-                        response.getIntExtra(MonicaMaFileContract.EXTRA_VERSION, -1),
-                        response.getStringExtra(MonicaMaFileContract.EXTRA_REQUEST_ID), expected, uri.toString()
-                    ))
-                    require(response.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
->>>>>>> Good-Joe2049/main
                 }
                 if (request.export == null) {
                     val (name, file) = withContext(Dispatchers.IO) {
