@@ -2,10 +2,11 @@ package com.millennium.app.features.guest
 
 import com.millennium.app.features.steamguard.ui.SteamGuardNextCodeScript
 import com.millennium.app.features.library.SteamLibraryGridScript
+import com.millennium.app.features.chat.ui.SteamChatScript
 
 /** Small, bundle-specific adapters. Account state and the native login form remain Steam-owned. */
 internal object SteamGuestBrowsingScript {
-    fun source(defaultRoute: String, nextCodeEnabled: Boolean, libraryPinchZoomEnabled: Boolean): String {
+    fun source(defaultRoute: String, nextCodeEnabled: Boolean, libraryPinchZoomEnabled: Boolean, chatBridgePrefix: String? = null): String {
         return """
 (function(g) {
     'use strict';
@@ -144,10 +145,12 @@ internal object SteamGuestBrowsingScript {
 ${SteamGuardDefaultPageScript.source(defaultRoute)}
 ${if (nextCodeEnabled) SteamGuardNextCodeScript.source() else ""}
 ${if (libraryPinchZoomEnabled) SteamLibraryGridScript.source() else ""}
+${chatBridgePrefix?.let(SteamChatScript::source) ?: ""}
 
     var targets = { 1136: true, 1476: true, 2125: true, 2135: true, 2412: true, 2455: true };
     if ($nextCodeEnabled) targets[2413] = true;
     if ($libraryPinchZoomEnabled) targets[3466] = true;
+    if (${chatBridgePrefix != null}) { targets[1892] = true; targets[2211] = true; }
     var remaining = Object.keys(targets).length;
     var define;
     function wrapDefine(originalDefine) {
@@ -168,6 +171,8 @@ ${if (libraryPinchZoomEnabled) SteamLibraryGridScript.source() else ""}
                     if (id === 2413 && dependency === 263) value = guardNextCodeRuntime(value, require);
                     if (id === 2455 && dependency === 2352) value = guestMenu(value, require);
                     if ($libraryPinchZoomEnabled && id === 3466 && dependency === 263) value = libraryGridRuntime(value, require);
+                    if (${chatBridgePrefix != null} && dependency === 263 && (id === 1476 || id === 1892 || id === 2455)) value = chatNavigationRuntime(value, require, id);
+                    if (${chatBridgePrefix != null} && id === 2211 && dependency === 2212) value = chatStoreHeader(value, require);
                     cache[dependency] = value;
                     return value;
                 };

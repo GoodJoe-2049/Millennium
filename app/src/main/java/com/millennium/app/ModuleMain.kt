@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.View
 import com.millennium.app.core.SteamRuntimeDiagnostics
 import com.millennium.app.features.guest.SteamGuestBrowsingFeature
+import com.millennium.app.features.chat.bridge.SteamChatBridge
 import com.millennium.app.features.library.SteamLibraryGridTouchHook
 import com.millennium.app.features.library.SteamLibraryGridDrawHook
 import com.millennium.app.features.steamdb.network.SteamDbConnectionDiagnostics
@@ -79,6 +80,7 @@ class ModuleMain : XposedModule() {
 
         SteamMaFileDocuments.install(this)
         if (loadedProcess == STEAM_PACKAGE) {
+            runCatching { SteamChatBridge.install(this, param.classLoader) { steamContext } }
             runCatching { libraryGridDrawHook.install(this, param.classLoader) }
             runCatching { libraryGridTouchHook.install(this, param.classLoader) }
             runCatching { guestBrowsingFeature.install(this, param.classLoader) }

@@ -1,0 +1,284 @@
+package com.millennium.app.features.chat.bridge
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Bundle
+import com.millennium.app.features.chat.runtime.SteamChatRuntime
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import com.millennium.app.features.chat.diagnostics.SteamChatDiagnostics
+import com.millennium.app.features.chat.media.SteamChatAttachments
+import com.millennium.app.features.chat.network.SteamChatAccount
+import com.millennium.app.features.chat.network.SteamChatFailure
+import com.millennium.app.features.steamguard.data.SteamSessionData
+import com.millennium.app.features.ui.settings.SteamModuleSettings
+import io.github.libxposed.api.XposedModule
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.lang.reflect.Method
+import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+
+/** Private in-process bridge. Commands never become Android intents or public deep links. */
+internal object SteamChatBridge {
+    val prefix = "millennium-chat-${UUID.randomUUID().toString().replace("-", "")}://request?payload="
+    @Volatile var available = false
+        private set
+    private val lock = Any()
+    private var activeAccount: SteamChatAccount? = null
+    private var lifecycleInstalled = false
+    private data class NotificationTarget(val account: String, val key: String)
+    @Volatile private var notificationTarget: NotificationTarget? = null
+    // current() constructs this only with applicationContext; no Activity or ReactContext is retained.
+    @SuppressLint("StaticFieldLeak")
+    private var attachments: SteamChatAttachments? = null
+    // Constructed exclusively with Steam's applicationContext.
+    @SuppressLint("StaticFieldLeak")
+    private var runtime: SteamChatRuntime? = null
+    private var picker: Picker? = null
+    private var epochAccount = ""
+    private var latestEpoch = -1L
+    private val hooked = hashSetOf<Method>()
+    private val main = Handler(Looper.getMainLooper())
+    private val io = ThreadPoolExecutor(3, 3, 30, TimeUnit.SECONDS, ArrayBlockingQueue(48)) { task ->
+        Thread(task, "MillenniumChatIO").apply { isDaemon = true }
+    }
+    private val local = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(48)) { task ->
+        Thread(task, "MillenniumChatState").apply { isDaemon = true }
+    }
+    private val gameInfo = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(32)) { task ->
+        Thread(task, "MillenniumChatGames").apply { isDaemon = true }
+    }
+    // Slow HTTP/CM requests must not queue ahead of visibility changes or incoming events.
+    private val localOperations = setOf("cache", "threadCache", "threadState", "preferences", "visibility", "events",
+        "backgroundStatus", "backgroundEnable", "backgroundDisable", "catalogCache", "discardPending", "uploadProgress", "pause")
+    private data class Picker(val account: String, val component: String, val complete: (JSONObject) -> Unit)
+    private const val REQUEST = 0x6d43
+
+    fun install(module: XposedModule, loader: ClassLoader, context: () -> Context?) {
+        if (available) return
+        SteamChatDiagnostics.install { priority, message -> module.log(priority, "MillenniumChat", message) }
+        SteamChatDiagnostics.info("bridge.install.begin")
+        val intentClass = Class.forName("com.facebook.react.modules.intent.IntentModule", false, loader)
+        val promiseClass = Class.forName("com.facebook.react.bridge.Promise", false, loader)
+        val resolve = promiseClass.getMethod("resolve", Any::class.java)
+        val open = intentClass.getDeclaredMethod("openURL", String::class.java, promiseClass)
+        val getReactContext = findMethod(intentClass, "getReactApplicationContext")
+        module.hook(open).setId("millennium.chat.bridge").intercept { chain ->
+            val url = chain.args[0] as? String
+            if (url == null || !url.startsWith(prefix)) return@intercept chain.proceed()
+            val promise = chain.args[1]
+            var diagnosticOperation = "unparsed"
+            val complete: (JSONObject) -> Unit = { response ->
+                SteamChatDiagnostics.info("bridge.response.$diagnosticOperation",
+                    "ok=${response.optBoolean("ok")} code=${SteamChatDiagnostics.operation(response.optString("error", "NONE"))}",
+                    SteamChatDiagnostics.quiet(diagnosticOperation))
+                runCatching { resolve.invoke(promise, response.toString()) }
+                    .onFailure { SteamChatDiagnostics.failure("bridge.resolve", it) }
+            }
+            try {
+                require(url.length <= 128 * 1024)
+                val args = JSONObject(Uri.decode(url.substring(prefix.length)))
+                val app = context() ?: throw SteamChatFailure("NOT_READY")
+                if (!SteamModuleSettings.isBuiltInChatEnabled(app)) {
+                    synchronized(lock) {
+                        attachments?.clear()
+                        runtime?.stop(); activeAccount = null; notificationTarget = null
+                    }
+                    throw SteamChatFailure("DISABLED")
+                }
+                val account = args.getString("account")
+                val operation = args.getString("operation")
+                diagnosticOperation = SteamChatDiagnostics.operation(operation)
+                val epoch = args.getLong("epoch")
+                SteamChatDiagnostics.info("bridge.request.$diagnosticOperation", "epoch=$epoch", SteamChatDiagnostics.quiet(operation))
+                require(epoch >= 0)
+                SteamChatAccount.current(account)
+                synchronized(lock) {
+                    if (epochAccount != account) { epochAccount = account; latestEpoch = -1 }
+                    if (epoch < latestEpoch) throw SteamChatFailure("STALE_REQUEST")
+                    latestEpoch = epoch
+                }
+                installLifecycle(module, app)
+                val currentActivity = runCatching {
+                    val reactContext = getReactContext.invoke(chain.thisObject)
+                    reactContext.javaClass.getMethod("getCurrentActivity").invoke(reactContext) as? Activity
+                }.getOrNull()
+                if (currentActivity != null) main.post { watchNotificationIntent(module, currentActivity) }
+                when (operation) {
+                    "copy" -> main.post {
+                        runCatching { app.getSystemService(ClipboardManager::class.java)
+                            .setPrimaryClip(ClipData.newPlainText("Steam", args.getString("text").take(16000))) }
+                            .fold({ complete(success(JSONObject())) }, { complete(failure(it)) })
+                    }
+                    "pickImage", "pickFile" -> {
+                        val reactContext = getReactContext.invoke(chain.thisObject)
+                        val activity = reactContext.javaClass.getMethod("getCurrentActivity").invoke(reactContext) as? Activity
+                            ?: throw SteamChatFailure("NOT_READY")
+                        main.post { pick(module, activity, account, complete) }
+                    }
+                    else -> (when {
+                        operation in localOperations -> local
+                        operation == "gameInfo" -> gameInfo
+                        else -> io
+                    }).execute {
+                        runCatching {
+                            val active = synchronized(lock) {
+                                if (epochAccount != account || latestEpoch != epoch) throw SteamChatFailure("STALE_REQUEST")
+                                current(app, account)
+                            }
+                            val host = requireNotNull(runtime)
+                            val media = requireNotNull(attachments)
+                            val result = SteamChatDiagnostics.trace("runtime.execute.$diagnosticOperation", SteamChatDiagnostics.quiet(operation)) {
+                                when (operation) {
+                                    "groupAvatar" -> host.withRepository(active, args) { media.uploadAvatar(it, args) }
+                                    "upload" -> host.withRepository(active, args) { media.upload(it, args) }
+                                    "uploadProgress" -> media.progress(args.getString("selection"))
+                                    "saveMedia" -> media.save(args)
+                                    else -> host.execute(active, args)
+                                }
+                            }
+                            if (operation == "events" && result is org.json.JSONArray) {
+                                synchronized(lock) {
+                                    notificationTarget?.let { target ->
+                                        notificationTarget = null
+                                        if (target.account == account) result.put(JSONObject().put("type", "openThread").put("key", target.key))
+                                    }
+                                }
+                            }
+                            if (operation != "pause" && SteamChatAccount.current(account) != active) throw SteamChatFailure("ACCOUNT_CHANGED")
+                            result
+                        }.fold({ complete(success(it)) }, { complete(failure(it)) })
+                    }
+                }
+            } catch (error: Exception) { complete(failure(error)) }
+            null
+        }
+        available = true
+        SteamChatDiagnostics.info("bridge.install.end")
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            SteamSessionData.json.collect {
+                synchronized(lock) {
+                    val active = activeAccount
+                    if (active != null && runCatching { SteamChatAccount.current(active.id) == active }.getOrDefault(false).not()) {
+                        activeAccount = null; attachments?.clear(); notificationTarget = null
+                        runtime?.stop()
+                    }
+                    picker?.let { pending ->
+                        if (runCatching { SteamChatAccount.current(pending.account) }.isFailure) {
+                            picker = null
+                            pending.complete(failure(SteamChatFailure("ACCOUNT_CHANGED")))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun current(context: Context, account: String): SteamChatAccount = synchronized(lock) {
+        val active = SteamChatAccount.current(account)
+        if (activeAccount != active) { attachments?.clear(); runtime?.stop(); activeAccount = active }
+        if (attachments == null) attachments = SteamChatAttachments(context.applicationContext)
+        if (runtime == null) runtime = SteamChatRuntime(context.applicationContext)
+        active
+    }
+
+    private fun installLifecycle(module: XposedModule, context: Context) = synchronized(lock) {
+        if (lifecycleInstalled) return@synchronized
+        val application = context.applicationContext as? Application ?: return@synchronized
+        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) {
+                watchNotificationIntent(module, activity)
+            }
+            override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
+        lifecycleInstalled = true
+    }
+
+    private fun notificationIntent(intent: Intent?) {
+        val key = intent?.getStringExtra("millennium_chat_target") ?: return
+        val expected = intent.getStringExtra("millennium_chat_account")
+        intent.removeExtra("millennium_chat_target"); intent.removeExtra("millennium_chat_account")
+        if (expected == null || !key.matches(Regex("p:7656119\\d{10}|g:[0-9]+:[0-9]+"))) return
+        synchronized(lock) {
+            if (runCatching { SteamChatAccount.current(expected) }.isSuccess) notificationTarget = NotificationTarget(expected, key)
+        }
+    }
+
+    private fun watchNotificationIntent(module: XposedModule, activity: Activity) {
+        notificationIntent(activity.intent)
+        runCatching {
+            val method = findMethod(activity.javaClass, "onNewIntent", Intent::class.java)
+            if (hooked.add(method)) module.hook(method).setId("millennium.chat.notification.${method.declaringClass.name}").intercept { chain ->
+                notificationIntent(chain.args[0] as? Intent)
+                chain.proceed()
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun pick(module: XposedModule, activity: Activity, account: String, complete: (JSONObject) -> Unit) {
+        runCatching {
+            SteamChatAccount.current(account)
+            current(activity, account)
+            val method = findMethod(activity.javaClass, "onActivityResult", Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, Intent::class.java)
+            if (hooked.add(method)) module.hook(method).setId("millennium.chat.picker.${method.declaringClass.name}").intercept { chain ->
+                if (chain.args[0] != REQUEST) return@intercept chain.proceed()
+                val pending = synchronized(lock) {
+                    picker?.takeIf { it.component == (chain.thisObject as Activity).componentName.flattenToString() }
+                        ?.also { picker = null }
+                } ?: return@intercept chain.proceed()
+                val result = chain.args[1] as Int
+                val uri = (chain.args[2] as? Intent)?.data
+                io.execute {
+                    runCatching {
+                        SteamChatAccount.current(pending.account)
+                        if (result == Activity.RESULT_OK && uri != null) attachments!!.select(pending.account, uri)
+                        else JSONObject().put("cancelled", true)
+                    }.fold({ pending.complete(success(it)) }, { pending.complete(failure(it)) })
+                }
+                null
+            }
+            synchronized(lock) {
+                if (picker != null) throw SteamChatFailure("BUSY")
+                picker = Picker(account, activity.componentName.flattenToString(), complete)
+            }
+            activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/mp4", "video/webm", "video/mpeg", "video/ogg", "application/zip", "application/x-zip-compressed"))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, REQUEST)
+        }.onFailure { synchronized(lock) { if (picker?.complete === complete) picker = null }; complete(failure(it)) }
+    }
+
+    private fun findMethod(type: Class<*>, name: String, vararg args: Class<*>): Method {
+        var current: Class<*>? = type
+        while (current != null) {
+            val method = runCatching { current.getDeclaredMethod(name, *args) }.getOrNull()
+            if (method != null) return method.apply { isAccessible = true }
+            current = current.superclass
+        }
+        error("Missing host method")
+    }
+    private fun success(value: Any) = JSONObject().put("ok", true).put("value", value)
+    private fun failure(error: Throwable): JSONObject {
+        SteamChatDiagnostics.failure("bridge.request.failed", error)
+        return JSONObject().put("ok", false).put("error", SteamChatDiagnostics.errorCode(error))
+    }
+}

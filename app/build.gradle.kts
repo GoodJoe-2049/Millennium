@@ -11,8 +11,8 @@ android {
         applicationId = "com.millennium.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 25
-        versionName = "1.3.0"
+        versionCode = 35
+        versionName = "1.4.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -63,6 +63,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)

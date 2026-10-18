@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import android.util.Log
 import com.millennium.app.features.ui.settings.SteamModuleSettings
+import com.millennium.app.features.chat.bridge.SteamChatBridge
 import io.github.libxposed.api.XposedModule
 import java.io.File
 import java.security.MessageDigest
@@ -70,6 +71,7 @@ internal class SteamGuestBrowsingFeature(
             defaultRoute = SteamModuleSettings.steamGuardDefaultPage(app).routeName,
             nextCodeEnabled = SteamModuleSettings.isSteamGuardNextCodeEnabled(app),
             libraryPinchZoomEnabled = SteamModuleSettings.isSteamLibraryPinchZoomEnabled(app),
+            chatBridgePrefix = SteamChatBridge.prefix.takeIf { SteamChatBridge.available && SteamModuleSettings.isBuiltInChatEnabled(app) },
         )
         val bytes = script.toByteArray(Charsets.UTF_8)
         if (!file.isFile || file.readText() != script) {

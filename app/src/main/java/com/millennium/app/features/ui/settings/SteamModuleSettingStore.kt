@@ -16,6 +16,14 @@ internal enum class SteamGuardDefaultPage(val routeName: String) {
 /** Persistent values used by the module settings page. */
 internal object SteamModuleSettings {
     private const val PREFS = "millennium_module_settings"
+    private const val BUILT_IN_CHAT_ENABLED = "built_in_chat_enabled"
+
+    fun isBuiltInChatEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(BUILT_IN_CHAT_ENABLED, false)
+
+    fun setBuiltInChatEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean(BUILT_IN_CHAT_ENABLED, enabled) }
+    }
     private const val STEAM_DB_ENABLED = "steamdb_floating_panel_enabled"
     private const val LANGUAGE = "module_language"
     private const val PRIVILEGED_MODE = "module_privileged_mode"

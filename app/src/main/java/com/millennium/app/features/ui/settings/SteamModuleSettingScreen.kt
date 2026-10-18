@@ -219,6 +219,7 @@ private fun GeneralPage(
     val restartMessage = stringResource(R.string.module_restart_required)
     var steamGlassEnabled by remember { mutableStateOf(SteamModuleSettings.isSteamBottomGlassEnabled(context)) }
     var nextCodeEnabled by remember { mutableStateOf(SteamModuleSettings.isSteamGuardNextCodeEnabled(context)) }
+    var builtInChatEnabled by remember { mutableStateOf(SteamModuleSettings.isBuiltInChatEnabled(context)) }
     var libraryPinchZoomEnabled by remember { mutableStateOf(SteamModuleSettings.isSteamLibraryPinchZoomEnabled(context)) }
     var showGlassDialog by rememberSaveable { mutableStateOf(false) }
     var glassHoldDown by rememberSaveable { mutableStateOf(false) }
@@ -265,6 +266,19 @@ private fun GeneralPage(
         BasicComponent(
             title = stringResource(R.string.module_guest_browsing),
             summary = stringResource(R.string.module_guest_browsing_summary),
+        )
+    }
+    SmallTitle(text = stringResource(R.string.module_enhancements))
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        SwitchPreference(
+            title = stringResource(R.string.module_built_in_chat),
+            summary = stringResource(R.string.module_built_in_chat_summary),
+            checked = builtInChatEnabled,
+            onCheckedChange = { enabled ->
+                SteamModuleSettings.setBuiltInChatEnabled(context, enabled)
+                builtInChatEnabled = enabled
+                Toast.makeText(context, restartMessage, Toast.LENGTH_SHORT).show()
+            },
         )
     }
     SmallTitle(text = stringResource(R.string.module_appearance))
