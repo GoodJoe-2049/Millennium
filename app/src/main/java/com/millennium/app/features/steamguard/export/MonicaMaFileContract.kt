@@ -14,6 +14,11 @@ internal object MonicaMaFileContract {
 
     fun validResult(version: Int, requestId: String?, expected: String, uri: String?): Boolean =
         version == VERSION && requestId == expected &&
+<<<<<<< HEAD
                 expected.length == 36 && runCatching { UUID.fromString(expected).toString() == expected }.getOrDefault(false) &&
                 uri != null && uriPattern.matches(uri)
+=======
+            expected.length == 36 && runCatching { UUID.fromString(expected).toString() == expected }.getOrDefault(false) &&
+            uri != null && uriPattern.matches(uri)
+>>>>>>> Good-Joe2049/main
 }
