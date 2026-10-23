@@ -7,6 +7,14 @@
 # Millennium always passes Steam's application context to init(Context).
 -dontwarn android.app.ActivityThread
 
+# Rhino's optional JavaToJSONConverters.BEAN uses desktop JavaBeans APIs absent on Android.
+# Effects use a safe JS scope and JSON data; they never select the BEAN converter.
+-dontwarn java.beans.BeanDescriptor
+-dontwarn java.beans.BeanInfo
+-dontwarn java.beans.IntrospectionException
+-dontwarn java.beans.Introspector
+-dontwarn java.beans.PropertyDescriptor
+
 # Rhino 1.9.1 resolves these types by name in ScriptRuntime.
 -keepnames class org.mozilla.javascript.Context
 -keepnames class org.mozilla.javascript.ContextFactory
