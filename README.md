@@ -405,7 +405,7 @@ Exported maFiles contain plaintext credentials, and session diagnostic logs can 
 - [Steam Desktop Authenticator](https://github.com/Jessecar96/SteamDesktopAuthenticator) — references for Steam maFile, Steam Guard, and trade confirmations.
 - [steamguard-cli](https://github.com/dyc3/steamguard-cli) — references for Steam Guard sign-in, authenticator transfers, and confirmation protocols.
 - [AnotherVaporAuth](https://github.com/freefrank/AnotherVaporAuth) — references for the Steam mobile authenticator and login approvals.
-- Monica Steam and the Monica authenticator — Steam account interoperability and authenticator import support.
+- [Monica Steam](https://github.com/JoyinJoester/Monica-Steam) and the [Monica authenticator](https://github.com/Monica-Pass/Monica) — Steam account interoperability and authenticator import support.
 - [Steam Profile Modifier](https://chromewebstore.google.com/detail/steam-profile-modifier/lfjdaphbejfpncjfebkbcganmkinhhfl) — a reference for local profile customization.
 - [Lottie Web](https://github.com/airbnb/lottie-web) — animations in the profile customization panel.
 
