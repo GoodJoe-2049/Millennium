@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.millennium.app"
+    namespace = "steam.nova.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.millennium.app"
+        applicationId = "steam.nova.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 35
-        versionName = "1.4.0"
+        versionCode = 42
+        versionName = "1.4.7"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -57,7 +57,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             @Suppress("UnstableApiUsage")
             output.outputFileName.set(
-                output.versionName.map { version -> "Millennium-v$version-$abis.apk" },
+                output.versionName.map { version -> "SteamNova-v$version-$abis.apk" },
             )
         }
     }
@@ -65,8 +65,8 @@ androidComponents {
 
 dependencies {
     // The room-effect adapter parses public Steam JS in a bounded, Java-free interpreter.
-    implementation("org.mozilla:rhino:1.9.1")
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation(libs.rhino)
+    implementation(libs.okhttp)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
@@ -82,7 +82,7 @@ dependencies {
     implementation(libs.shizuku.api)
     implementation(libs.dhizuku.api)
     implementation(libs.hiddenapibypass)
-    compileOnly("io.github.libxposed:api:102.0.0")
+    compileOnly(libs.libxposed.api)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

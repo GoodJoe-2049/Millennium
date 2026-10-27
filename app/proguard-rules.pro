@@ -1,4 +1,4 @@
--keep,allowoptimization class com.millennium.app.ModuleMain {
+-keep,allowoptimization class steam.nova.app.ModuleMain {
     public <init>();
     public <methods>;
 }
