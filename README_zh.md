@@ -405,7 +405,7 @@ Release 构建启用 R8 与资源缩减，请保留项目中的 ProGuard 规则�
 - [Steam Desktop Authenticator](https://github.com/Jessecar96/SteamDesktopAuthenticator) — Steam maFile、Steam Guard 与交易确认参考。
 - [steamguard-cli](https://github.com/dyc3/steamguard-cli) — Steam Guard 登录、令牌迁移与确认协议参考。
 - [AnotherVaporAuth](https://github.com/freefrank/AnotherVaporAuth) — Steam 移动验证器与登录批准参考。
-- Monica Steam 与 Monica 身份验证器 — Steam 账号互通与令牌导入支持。
+- [Monica Steam](https://github.com/JoyinJoester/Monica-Steam) 与 [Monica 身份验证器](https://github.com/Monica-Pass/Monica) — Steam 账号互通与令牌导入支持。
 - [Steam Profile Modifier](https://chromewebstore.google.com/detail/steam-profile-modifier/lfjdaphbejfpncjfebkbcganmkinhhfl) — 本机个人资料装扮功能参考。
 - [Lottie Web](https://github.com/airbnb/lottie-web) — 资料装扮面板中的动画。
 
